@@ -1,0 +1,233 @@
+insert into students (name,age,grade)
+values ('张三','20','三年级');
+select id,name,age,grade from students where age> 18;
+
+update students set grade = '四年级' where name = '张三';
+
+delete FROM students where age < 15;
+
+
+BEGIN;
+
+-- 1. 检查账户A的余额是否足够
+DECLARE current_balance DECIMAL;
+SELECT balance INTO current_balance FROM accounts WHERE id = 'A' FOR UPDATE;
+
+-- 如果余额不足，回滚事务
+IF current_balance < 100 THEN
+    ROLLBACK;
+    -- 在实际应用中，这里可以抛出错误或返回提示信息
+    SELECT '转账失败：账户A余额不足';
+ELSE
+    -- 2. 从账户A扣除100元
+    UPDATE accounts SET balance = balance - 100 WHERE id = 'A';
+    
+    -- 3. 向账户B增加100元
+    UPDATE accounts SET balance = balance + 100 WHERE id = 'B';
+    
+    -- 4. 记录转账交易
+    INSERT INTO transactions (from_account_id, to_account_id, amount)
+    VALUES ('A', 'B', 100);
+    
+    -- 提交事务
+    COMMIT;
+    SELECT '转账成功';
+END IF;
+
+
+type Employee struct {
+	ID         uint
+	Name       string
+	Department string
+	Salary     decimal.Decimal `gorm:"type:decimal(19,4)"`
+	DeletedAt  gorm.DeletedAt  `gorm:"index"`
+}
+
+func DbEmployee(db *gorm.DB) {
+	db.AutoMigrate(&Employee{})
+
+	// ems := []Employee{
+	// 	{ID: 1, Name: "张三", Department: "技术部", Salary: decimal.NewFromFloat(10000.00)},
+	// 	{ID: 2, Name: "李四", Department: "技术部", Salary: decimal.NewFromFloat(12000.00)},
+	// 	{ID: 3, Name: "王五", Department: "技术部2", Salary: decimal.NewFromFloat(15000.00)},
+	// 	{ID: 4, Name: "赵六", Department: "技术部1", Salary: decimal.NewFromFloat(13000.00)},
+	// }
+	// db.Create(&ems)
+	rows, err := db.Debug().Model(&Employee{}).Where("Department = ?", "技术部").Rows()
+	if err != nil {
+		fmt.Println("Error retrieving rows:", err)
+		return
+	}
+	defer rows.Close()
+
+	// 方法1：手动遍历（推荐）
+	var employees []Employee
+	for rows.Next() {
+		var emp Employee
+		if err := db.ScanRows(rows, &emp); err != nil {
+			fmt.Println("Error scanning row:", err)
+			continue
+		}
+		employees = append(employees, emp)
+	}
+
+	// var emList []Employee
+	// db.ScanRows(rows, &emList)
+
+	fmt.Println(len(employees), "-----------------")
+
+	for _, em := range employees {
+		fmt.Println(em)
+	}
+
+	var emp Employee
+
+	db.Debug().Raw("SELECT id,name,department,salary FROM `employees` where id = (select id from employees order by salary desc limit 1)").Scan(&emp)
+
+	fmt.Println(emp)
+}
+
+type Book struct {
+	ID     uint
+	Time   string
+	Author string
+	Price  decimal.Decimal `gorm:"type:decimal(19,4)"`
+}
+
+func DbBook(db *gorm.DB) {
+	//db.AutoMigrate(&Book{})
+
+	// books := []Book{
+	// 	{ID: 1, Time: "2023-09-01", Author: "张三", Price: decimal.NewFromFloat(100.00)},
+	// 	{ID: 2, Time: "2023-09-02", Author: "李四", Price: decimal.NewFromFloat(120.00)},
+	// 	{ID: 3, Time: "2023-09-03", Author: "王五", Price: decimal.NewFromFloat(150.00)},
+	// 	{ID: 4, Time: "2023-09-04", Author: "赵六", Price: decimal.NewFromFloat(130.00)},
+	// }
+	//db.Debug().Create(books)
+	var bks []Book
+
+	rows, err := db.Debug().Model(&Book{}).Where("Price > ?", decimal.NewFromFloat(100.00)).Rows()
+
+	if err != nil {
+		fmt.Println("Error retrieving rows:", err)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+
+		if err := db.ScanRows(rows, &bks); err != nil {
+			fmt.Println("Error scanning rows:", err)
+			continue
+		}
+	}
+	for _, b := range bks {
+		fmt.Println(b, "b++++++++++++++")
+	}
+
+}
+
+type User struct {
+	ID        uint
+	Name      string
+	Age       uint8
+	Birthday  *time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	Posts     []Post `gorm:"foreignKey:UserID"` // 用户与文章的一对多关系
+
+	PostNum uint //文章数量
+}
+
+type Post struct {
+	ID        uint
+	Title     string
+	Content   string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	UserID    uint      // 外键，指向User表的ID
+	Comments  []Comment `gorm:"foreignKey:PostID"`
+
+	CommentNum uint
+}
+
+type Comment struct {
+	ID        uint
+	Content   string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	PostID    uint // 外键，指向Post表的ID`
+}
+
+func (p *Post) AfterCreate(tx *gorm.DB) (err error) {
+	tx.Model(&User{}).Where("id = ?", p.UserID).Update("PostNum", gorm.Expr("post_count + ?", 1))
+	fmt.Println("AfterCreate")
+	return
+}
+func (c *Comment) AfterDelete(tx *gorm.DB) (err error) {
+	// 1. 查询该文章剩余的评论数量
+	var count int64
+	if err := tx.Model(&Comment{}).
+		Where("post_id = ?", c.PostID).
+		Count(&count).Error; err != nil {
+		return err
+	}
+
+	// 2. 如果评论数量为0，更新文章状态
+	if count == 0 {
+		if err := tx.Model(&Post{}).
+			Where("id = ?", c.PostID).
+			Update("CommentNum", 0).Error; err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+func DBUser(db *gorm.DB) {
+	db.AutoMigrate(&User{})
+	db.AutoMigrate(&Post{})
+	db.AutoMigrate(&Comment{})
+
+	u := []User{
+		{Name: "张三", Age: 18},
+		{Name: "李四", Age: 20},
+		{Name: "王五", Age: 22},
+		{Name: "赵六", Age: 24},
+	}
+	p := []Post{
+		{Title: "Post 1", Content: "Content 1", UserID: 1},
+		{Title: "Post 2", Content: "Content 2", UserID: 1},
+		{Title: "Post 3", Content: "Content 3", UserID: 1},
+		{Title: "Post 4", Content: "Content 4", UserID: 2},
+	}
+	c := []Comment{
+		{Content: "Comment 1", PostID: 1},
+		{Content: "Comment 2", PostID: 1},
+		{Content: "Comment 3", PostID: 1},
+		{Content: "Comment 4", PostID: 1},
+	}
+
+	db.Create(&u)
+	db.Create(&p)
+	db.Create(&c)
+
+	// 查询id = 的用户的文章以及评论
+	var users []User
+	rows, err := db.Debug().Preload("Posts").Preload("Posts.Comments").Where("ID = ?", 1).Find(&users).Rows()
+	if err != nil {
+		fmt.Println("Error retrieving rows:", err)
+		return
+	}
+	defer rows.Close()
+
+	for _, u := range users {
+		fmt.Println(u)
+		fmt.Println(u.Posts)
+	}
+	// 查询评论数最多的文章
+	var post Post
+	db.Debug().Raw("SELECT id,title,content FROM `posts` where id = (select post_id from (SELECT post_id,count(*) as num FROM comments group by post_id order by num desc limit 1) t)").Scan(&post)
+	fmt.Println(post, "post++++++++++++++")
+
+}
