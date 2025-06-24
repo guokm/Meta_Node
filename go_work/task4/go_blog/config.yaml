@@ -1,0 +1,29 @@
+Name: "go_blog"
+Env: "dev"
+Port: 8080
+
+
+Mysql:
+  Username: "root"
+  Password: "Guo_413413"
+  Host: "127.0.0.1"
+  Port: "3306"
+  DBname: "go_blog"
+  Timeout: "10s"
+  MaxOpenConns: 100    # 最大连接数
+  MaxIdleConns: 10     # 空闲连接数
+  ConnMaxLifetime: 30m # 连接最大存活时间
+
+Log:
+  Level: "debug"
+  LogPath: "logs"  # 日志文件路径
+  Model: "file"
+  MaxSize: 20             # 单个文件最大大小(MB)
+  MaxBackups: 5           # 保留的旧日志文件数
+  MaxAge: 7              # 日志保留天数
+  Compress: true           # 是否压缩旧日志
+
+Jwt:
+  Secret: "go_blog20250623"
+  TokenExpire: 24
+  Issuer: "gkm"
